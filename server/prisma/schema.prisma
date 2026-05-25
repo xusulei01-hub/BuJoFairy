@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String          @id @default(uuid())
+  appleUserID    String          @unique
+  name           String?
+  avatarURL      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  trips          Trip[]
+  socialAccounts SocialAccount[]
+}
+
+model Trip {
+  id        String     @id @default(uuid())
+  userId    String
+  name      String
+  startDate DateTime
+  endDate   DateTime?
+  coverURL  String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locations Location[]
+  journals  Journal[]
+}
+
+model Location {
+  id         String @id @default(uuid())
+  tripId     String
+  name       String
+  latitude   Float
+  longitude  Float
+  photoCount Int    @default(0)
+  trip       Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model Journal {
+  id          String   @id @default(uuid())
+  tripId      String
+  title       String
+  templateID  String
+  contentJSON String
+  coverURL    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+}
+
+model SocialAccount {
+  id          String    @id @default(uuid())
+  userId      String
+  platform    String
+  accountName String?
+  connectedAt DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
