@@ -19,3 +19,7 @@ dist/
 
 # Backups
 *.backup-*/
+
+# Swift Package Manager
+.build/
+Package.resolved

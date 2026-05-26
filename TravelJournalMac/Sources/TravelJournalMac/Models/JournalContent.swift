@@ -1,0 +1,114 @@
+import Foundation
+
+struct JournalPage: Codable, Identifiable, Equatable {
+    var id: String { "\(type)-\(title ?? "")-\(text ?? "")" }
+    let type: String
+    let layout: String
+    let title: String?
+    let text: String?
+    let photoIndices: [Int]?
+    let caption: String?
+}
+
+struct JournalContent: Codable, Equatable {
+    let pages: [JournalPage]
+}
+
+enum JournalPromptBuilder {
+    static func buildGenerationPrompt(
+        tripName: String,
+        startDate: Date,
+        locations: [String],
+        templateName: String,
+        enableWebSearch: Bool
+    ) -> (system: String, user: String) {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy 年 MM 月 dd 日"
+
+        let locationsText = locations.isEmpty ? "未知地点" : locations.joined(separator: "、")
+
+        let systemPrompt = """
+        你是一个旅行手帐创作助手。用户会提供旅行信息，请按照指定的模板结构生成手帐内容。
+
+        模板页面结构说明：
+        - cover: 封面页，布局 full_photo_title_overlay
+        - daily: 日记页，布局 photo_left_text_right / text_left_photo_right / photo_top_text_bottom / text_top_photo_bottom
+        - gallery: 照片集，布局 two_grid / three_grid
+        - highlight: 亮点页，布局 full_width_photo_quote
+        - ending: 尾页，布局 summary_stats
+
+        要求：
+        1. 按指定模板结构生成每个页面的内容
+        2. 文字风格温暖、有旅行感，每个 daily 页面 80-150 字
+        3. 封面标题要吸引人
+        4. gallery 页面填充照片索引（数字 0 开始），photoIndices 数组
+        5. 返回严格 JSON，格式为 { "pages": [...] }，不要包含 markdown 代码块标记，不要使用 ```json 包裹
+        \(enableWebSearch ? "6. 请在内容中融入地点的背景知识、历史故事、旅行小贴士" : "")
+        """
+
+        let userPrompt = """
+        旅行名称：\(tripName)
+        出发日期：\(dateFormatter.string(from: startDate))
+        访问地点：\(locationsText)
+        模板名称：\(templateName)
+        """
+
+        return (system: systemPrompt, user: userPrompt)
+    }
+
+    static func buildMultimodalPrompt(
+        tripName: String,
+        startDate: Date,
+        locations: [String],
+        templateName: String
+    ) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy 年 MM 月 dd 日"
+        let locationsText = locations.isEmpty ? "未知地点" : locations.joined(separator: "、")
+
+        return """
+        你是一个旅行手帐创作助手。用户提供了旅行照片，请分析照片内容并生成手帐。
+
+        旅行信息：
+        - 名称：\(tripName)
+        - 日期：\(dateFormatter.string(from: startDate))
+        - 地点：\(locationsText)
+        - 模板：\(templateName)
+
+        要求：
+        1. 根据照片实际内容生成描述（不要只根据地点名称编造）
+        2. 识别地标建筑、自然风光、美食、人物活动
+        3. 结合照片氛围选择文字风格
+        4. 每张照片附 1-2 句描述，融入手帐正文
+        5. 按模板结构生成页面：cover → daily × N → gallery → highlight → ending
+        6. 返回严格 JSON：{ "pages": [...] }，不要用 ```json 包裹
+        """
+    }
+
+    static func extractJSON(from text: String) -> Data? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.hasPrefix("```") {
+            var lines = trimmed.components(separatedBy: "\n")
+            if let first = lines.first, first.hasPrefix("```") {
+                lines.removeFirst()
+            }
+            if let first = lines.first, first.trimmingCharacters(in: .whitespaces) == "json" {
+                lines.removeFirst()
+            }
+            if let last = lines.last, last.trimmingCharacters(in: .whitespaces) == "```" {
+                lines.removeLast()
+            }
+            let inner = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            return inner.data(using: .utf8)
+        }
+
+        if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}") {
+            let jsonRange = start...end
+            let jsonString = String(trimmed[jsonRange])
+            return jsonString.data(using: .utf8)
+        }
+
+        return trimmed.data(using: .utf8)
+    }
+}
