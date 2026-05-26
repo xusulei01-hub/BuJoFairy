@@ -1,103 +1,88 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { prisma } from '../prisma';
 import { AuthRequest, authMiddleware } from '../middleware/auth';
+import { createTripSchema, updateTripSchema, createLocationSchema } from '../schemas';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 router.use(authMiddleware);
 
 // 获取用户所有旅行
 router.get('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const trips = await prisma.trip.findMany({
-      where: { userId: req.userId },
-      orderBy: { startDate: 'desc' },
-      include: { locations: true, journals: { select: { id: true, title: true, coverURL: true } } },
-    });
-    res.json({ trips });
-  } catch (error) {
-    res.status(500).json({ error: '获取旅行列表失败' });
-  }
+  const trips = await prisma.trip.findMany({
+    where: { userId: req.userId },
+    orderBy: { startDate: 'desc' },
+    include: { locations: true, journals: { select: { id: true, title: true, coverURL: true } } },
+  });
+  res.json({ trips });
 });
 
 // 创建旅行
 router.post('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const { name, startDate, endDate } = req.body;
-    if (!name || !startDate) {
-      res.status(400).json({ error: '缺少必填字段' });
-      return;
-    }
-    const trip = await prisma.trip.create({
-      data: {
-        userId: req.userId!,
-        name,
-        startDate: new Date(startDate),
-        endDate: endDate ? new Date(endDate) : null,
-      },
-    });
-    res.status(201).json({ trip });
-  } catch (error) {
-    res.status(500).json({ error: '创建旅行失败' });
-  }
+  const body = createTripSchema.parse(req.body);
+  const trip = await prisma.trip.create({
+    data: {
+      userId: req.userId!,
+      name: body.name,
+      startDate: new Date(body.startDate),
+      endDate: body.endDate ? new Date(body.endDate) : null,
+    },
+  });
+  res.status(201).json({ trip });
 });
 
 // 更新旅行
 router.put('/:id', async (req: AuthRequest, res: Response) => {
-  try {
-    const id = req.params.id as string;
-    const { name, startDate, endDate, coverURL } = req.body;
-    const updateData: Record<string, unknown> = {};
-    if (name !== undefined) updateData.name = name;
-    if (startDate !== undefined) updateData.startDate = new Date(startDate);
-    if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
-    if (coverURL !== undefined) updateData.coverURL = coverURL;
+  const id = req.params.id as string;
+  const body = updateTripSchema.parse(req.body);
 
-    await prisma.trip.updateMany({ where: { id, userId: req.userId }, data: updateData });
-    const updated = await prisma.trip.findUnique({ where: { id } });
-    res.json({ trip: updated });
-  } catch (error) {
-    res.status(500).json({ error: '更新旅行失败' });
-  }
+  const existing = await prisma.trip.findFirst({ where: { id, userId: req.userId } });
+  if (!existing) { res.status(404).json({ error: '旅行不存在或无权限' }); return; }
+
+  const updateData: Prisma.TripUpdateInput = {};
+  if (body.name !== undefined) updateData.name = body.name;
+  if (body.startDate !== undefined) updateData.startDate = new Date(body.startDate);
+  if (body.endDate !== undefined) updateData.endDate = body.endDate ? new Date(body.endDate) : null;
+  if (body.coverURL !== undefined) updateData.coverURL = body.coverURL;
+
+  const updated = await prisma.trip.update({ where: { id }, data: updateData });
+  res.json({ trip: updated });
 });
 
 // 删除旅行
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  try {
-    const id = req.params.id as string;
-    await prisma.trip.deleteMany({ where: { id, userId: req.userId } });
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: '删除旅行失败' });
-  }
+  const id = req.params.id as string;
+  const { count } = await prisma.trip.deleteMany({ where: { id, userId: req.userId } });
+  if (count === 0) { res.status(404).json({ error: '旅行不存在或无权限' }); return; }
+  res.json({ success: true });
 });
 
 // 添加地点
 router.post('/:tripId/locations', async (req: AuthRequest, res: Response) => {
-  try {
-    const tripId = req.params.tripId as string;
-    const { name, latitude, longitude } = req.body;
-    const trip = await prisma.trip.findFirst({ where: { id: tripId, userId: req.userId } });
-    if (!trip) { res.status(404).json({ error: '旅行不存在' }); return; }
-    const location = await prisma.location.create({
-      data: { tripId, name, latitude, longitude },
-    });
-    res.status(201).json({ location });
-  } catch (error) {
-    res.status(500).json({ error: '添加地点失败' });
-  }
+  const tripId = req.params.tripId as string;
+  const body = createLocationSchema.parse(req.body);
+
+  const trip = await prisma.trip.findFirst({ where: { id: tripId, userId: req.userId } });
+  if (!trip) { res.status(404).json({ error: '旅行不存在' }); return; }
+
+  const location = await prisma.location.create({
+    data: { tripId, name: body.name, latitude: body.latitude, longitude: body.longitude },
+  });
+  res.status(201).json({ location });
 });
 
 // 删除地点
 router.delete('/:tripId/locations/:locId', async (req: AuthRequest, res: Response) => {
-  try {
-    const tripId = req.params.tripId as string; const locId = req.params.locId as string;
-    await prisma.location.deleteMany({ where: { id: locId, tripId } });
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: '删除地点失败' });
-  }
+  const tripId = req.params.tripId as string;
+  const locId = req.params.locId as string;
+
+  const trip = await prisma.trip.findFirst({ where: { id: tripId, userId: req.userId } });
+  if (!trip) { res.status(404).json({ error: '旅行不存在或无权限' }); return; }
+
+  const { count } = await prisma.location.deleteMany({ where: { id: locId, tripId } });
+  if (count === 0) { res.status(404).json({ error: '地点不存在' }); return; }
+  res.json({ success: true });
 });
 
 export default router;

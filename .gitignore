@@ -4,6 +4,18 @@ dist/
 *.db-journal
 .DS_Store
 .superpowers/
-TravelJournal.xcodeproj/xcuserdata/
-TravelJournal.xcodeproj/project.xcworkspace/xcuserdata/
-.DS_Store
+
+# Environment
+.env
+*.env
+!.env.example
+
+# Xcode user data
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+**/*.xcodeproj/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/
+
+# Backups
+*.backup-*/

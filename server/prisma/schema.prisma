@@ -30,6 +30,8 @@ model Trip {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   locations Location[]
   journals  Journal[]
+
+  @@index([userId])
 }
 
 model Location {
@@ -40,6 +42,8 @@ model Location {
   longitude  Float
   photoCount Int    @default(0)
   trip       Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
 }
 
 model Journal {
@@ -47,11 +51,13 @@ model Journal {
   tripId      String
   title       String
   templateID  String
-  contentJSON String
+  contentJSON Json
   coverURL    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
 }
 
 model SocialAccount {
@@ -61,4 +67,6 @@ model SocialAccount {
   accountName String?
   connectedAt DateTime?
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

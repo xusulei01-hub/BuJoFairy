@@ -1,57 +1,50 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma';
 import { generateToken } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+import { verifyAppleToken } from '../utils/appleAuth';
+import { appleSignInSchema } from '../schemas';
 
 const router = Router();
-const prisma = new PrismaClient();
 
-interface AppleSignInBody {
-  appleUserID: string;
-  name?: string;
-  identityToken?: string;
-}
+const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID || 'com.example.TravelJournal';
 
 router.post('/apple', async (req: Request, res: Response) => {
+  const body = appleSignInSchema.parse(req.body);
+
+  let payload;
   try {
-    const { appleUserID, name, identityToken } = req.body as AppleSignInBody;
-    
-    if (!appleUserID) {
-      res.status(400).json({ error: '缺少 appleUserID' });
-      return;
-    }
-    
-    // 生产环境需验证 Apple identityToken
-    // 开发阶段：直接查找或创建用户
-    
-    let user = await prisma.user.findUnique({ where: { appleUserID } });
-    
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          appleUserID,
-          name: name || '旅行者',
-        },
-      });
-    } else if (name && user.name === '旅行者') {
-      // 更新用户名（首次登录时 Apple 只返回一次名字）
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { name },
-      });
-    }
-    
-    const token = generateToken(user.id);
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
+    payload = await verifyAppleToken(body.identityToken, APPLE_CLIENT_ID);
+  } catch {
+    throw new AppError(401, 'AUTH_FAILED', 'Apple 登录验证失败');
+  }
+
+  const verifiedAppleUserID = payload.sub;
+
+  let user = await prisma.user.findUnique({ where: { appleUserID: verifiedAppleUserID } });
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        appleUserID: verifiedAppleUserID,
+        name: body.name || '旅行者',
       },
     });
-  } catch (error) {
-    console.error('Apple sign in error:', error);
-    res.status(500).json({ error: '登录失败' });
+  } else if (body.name && user.name === '旅行者') {
+    user = await prisma.user.update({
+      where: { id: user.id },
+      data: { name: body.name },
+    });
   }
+
+  const token = generateToken(user.id);
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+    },
+  });
 });
 
 export default router;
